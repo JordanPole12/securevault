@@ -28,7 +28,8 @@ CREATE TABLE secure_contents (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NOT NULL,
   key_id INT UNSIGNED NOT NULL,
-  content_type ENUM('secure_note','document','announcement','article','system_info','confidential_record') NOT NULL,
+  content_type_enc TEXT NOT NULL,            -- tipe konten, terenkripsi AES-256-GCM (APP_KEY)
+  type_idx CHAR(64) NOT NULL,                -- HMAC-SHA256 tipe, hanya untuk filter
   encrypted_title TEXT NOT NULL,
   encrypted_content MEDIUMTEXT NOT NULL,
   encrypted_aes_key TEXT NOT NULL,
@@ -37,7 +38,7 @@ CREATE TABLE secure_contents (
   encryption_algorithm VARCHAR(64) NOT NULL DEFAULT 'AES-256-GCM+RSA-OAEP-SHA256',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  KEY idx_type (content_type),
+  KEY idx_type (type_idx),
   CONSTRAINT fk_content_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_content_key FOREIGN KEY (key_id) REFERENCES user_keys(id)
 ) ENGINE=InnoDB;
@@ -56,41 +57,39 @@ CREATE TABLE secure_files (
 
 CREATE TABLE authentication_logs (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  key_fingerprint CHAR(64) NULL,
-  event_type VARCHAR(40) NOT NULL,
-  status ENUM('success','failure') NOT NULL,
-  ip_address VARCHAR(45) NOT NULL,
+  fp_enc TEXT NULL,
+  event_enc TEXT NOT NULL,
+  status_enc TEXT NOT NULL,
+  status_idx CHAR(64) NOT NULL,
+  ip_enc TEXT NOT NULL,
+  ip_idx CHAR(64) NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_ip_time (ip_address, status, created_at)
+  KEY idx_ip_time (ip_idx, status_idx, created_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE security_logs (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NULL,
-  action VARCHAR(40) NOT NULL,
-  resource_type VARCHAR(40) NULL,
+  action_enc TEXT NOT NULL,
+  action_idx CHAR(64) NOT NULL,
+  resource_type_enc TEXT NULL,
   resource_id INT UNSIGNED NULL,
-  status VARCHAR(16) NOT NULL,
+  status_enc TEXT NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_action_time (action, created_at)
+  KEY idx_action_time (action_idx, created_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE decoy_logs (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  attempted_key_fingerprint CHAR(64) NULL,
-  event_type VARCHAR(40) NOT NULL,
-  status VARCHAR(16) NOT NULL,
+  fp_enc TEXT NULL,
+  event_enc TEXT NOT NULL,
+  status_enc TEXT NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 CREATE TABLE system_settings (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   setting_key VARCHAR(64) NOT NULL UNIQUE,
-  setting_value VARCHAR(255) NOT NULL,
+  setting_value TEXT NOT NULL,               -- diisi aplikasi via Vault::seal()
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
-
-INSERT INTO system_settings (setting_key, setting_value) VALUES
- ('symmetric_algorithm','AES-256-GCM'),
- ('asymmetric_algorithm','RSA-4096 (OAEP-SHA256 / PSS-SHA256)'),
- ('challenge_ttl_seconds','120');

@@ -11,6 +11,13 @@ PHP 8.2+ Native · MySQL 8 · Web Crypto API · Tailwind (CDN). Login tanpa pass
 5. Buka `/setup`, masukkan SETUP_TOKEN, klik Generate. **Unduh kedua private key** (`auth_private_key.pem`, `enc_private_key.pem`). Tidak ada salinan di server; kehilangan `enc_private_key.pem` = data tidak bisa dipulihkan.
 6. Buka `/login`, pilih `auth_private_key.pem`. Kunci lain (valid tetapi tak terdaftar, atau kunci enkripsi) → dashboard decoy.
 
+## Enkripsi database & tampilan terenkripsi (v2)
+- **Kolom database terenkripsi** (AES-256-GCM, kunci diturunkan HKDF dari `APP_KEY` di `.env`): tipe konten, seluruh isi `authentication_logs`, `security_logs`, `decoy_logs`, dan `system_settings`. Judul/isi/kunci AES rekaman sudah terenkripsi di browser.
+- Kolom `*_idx` = HMAC-SHA256 (blind index) agar filter tipe, pembatasan login per IP, dan statistik dasbor tetap jalan tanpa menyimpan nilai asli.
+- Tetap plaintext (sengaja): public key + fingerprint (publik, dipakai mencari kunci login), `users.role/status`, ID, dan timestamp.
+- **Key salah → semua ciphertext:** sesi decoy (dasbor, Konten Aman, menu, judul halaman) menampilkan teks acak sepanjang aslinya setiap render; di Konten Aman, rekaman yang kuncinya belum dimuat/salah hanya menampilkan ciphertext tanpa tombol Edit/Hapus.
+- **Upgrade dari versi lama:** isi `APP_KEY` di `.env` (`php -r "echo 'base64:'.base64_encode(random_bytes(32));"`), lalu `php scripts/migrate_v2.php`. Instalasi baru: cukup import `schema.sql`. Simpan cadangan `APP_KEY`; tanpa itu tipe konten dan log tidak bisa dibaca.
+
 ## Arsitektur kripto
 | Fungsi | Algoritma | Lokasi |
 |---|---|---|
@@ -27,6 +34,6 @@ Catatan desain: operasi OAEP-SHA256 dilakukan di browser karena `openssl_public_
 - `python3 tests/pss_reference.py /tmp/svtest` — port logika `SignatureService` + kecocokan fingerprint.
 
 ## BELUM diuji / belum ada
-Kode PHP, SQL, dan view **belum pernah dijalankan** (lingkungan pembuatan tanpa PHP/MySQL). Perlu uji manual: setup → login benar → login salah (decoy) → CRUD → akses API dari sesi decoy (harus 403) → replay (kirim ulang request verify harus gagal).
+Perubahan v2 (Vault, migrasi, view decoy teracak) **belum dijalankan** (lingkungan pembuatan tanpa PHP/MySQL); hanya sintaks JS dan format enkripsi yang diuji. Perlu uji manual: setup → login benar → login salah (decoy) → CRUD → akses API dari sesi decoy (harus 403) → replay (kirim ulang request verify harus gagal).
 Belum diimplementasikan: upload/enkripsi file (`secure_files` sudah ada di skema), rotasi/revokasi kunci via UI, halaman Encryption Center/Signature/Settings/Logs terpisah, penambahan administrator lain, laporan akademik (BAB I–VI), dan aset visual (screenshot/diagram).
 Catatan keamanan: CSP memakai `'unsafe-inline'` dan CDN untuk kemudahan pengembangan; ketatkan (hosting lokal + nonce) untuk produksi. Angka "Decryption Ops" dilaporkan oleh klien.

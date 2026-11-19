@@ -18,11 +18,14 @@ async function setKey(t){try{SV.pemToDer(t,'PRIVATE KEY');kp=t;$('ks').textConte
 $('kf').onchange=async e=>{if(e.target.files[0])setKey(await e.target.files[0].text())};
 $('kt').oninput=()=>{if($('kt').value.trim())setKey($('kt').value)};
 async function load(){items=(await svFetch('/api/contents?type='+encodeURIComponent($('fl').value))).items;await decryptAll()}
-async function decryptAll(){plain={};if(kp)for(const r of items){try{plain[r.id]=await SV.decryptRecord(kp,r);}catch{plain[r.id]={err:true}}}render()}
-function render(){const q=$('q').value.toLowerCase();$('ls').innerHTML=items.filter(r=>!q||(plain[r.id]&&!plain[r.id].err&&(plain[r.id].title+plain[r.id].content).toLowerCase().includes(q))).map(r=>{const p=plain[r.id];
- const body=!kp?`<div class="font-mono text-[10px] text-mut break-all">${esc(r.encrypted_content.slice(0,160))}…</div><div class="text-xs text-cy mt-1">TERENKRIPSI — pilih private key untuk membuka</div>`
- :p&&!p.err?`<div class="font-semibold">${esc(p.title)}</div><div class="text-sm text-mut whitespace-pre-wrap mt-1">${esc(p.content)}</div>`:`<div class="text-red-400 text-sm">Gagal dekripsi (kunci salah atau data rusak)</div>`;
- return `<div class="glass p-4"><div class="flex justify-between text-xs text-mut mb-2"><span>${esc(r.content_type)} · #${r.id}</span><span>${esc(r.updated_at)}</span></div>${body}
+async function decryptAll(){plain={};if(kp){for(const r of items){try{plain[r.id]=await SV.decryptRecord(kp,r);}catch{plain[r.id]={err:true}}}
+ if(items.length&&items.every(r=>plain[r.id].err))$('ks').textContent='kunci tidak cocok'}render()}
+const unlocked=r=>kp&&plain[r.id]&&!plain[r.id].err;
+function render(){const q=$('q').value.toLowerCase();$('ls').innerHTML=items.filter(r=>!q||(unlocked(r)&&(plain[r.id].title+plain[r.id].content).toLowerCase().includes(q))).map(r=>{
+ // Kunci belum dimuat atau salah: tampilkan HANYA ciphertext (tidak ada kata yang terbaca, tanpa tombol aksi).
+ if(!unlocked(r))return `<div class="glass p-4 font-mono break-all"><div class="text-[10px] text-mut">${esc(r.type_cipher||'')}</div><div class="text-xs text-cy mt-2">${esc(r.encrypted_title.split('.').join(''))}</div><div class="text-[11px] text-mut mt-1">${esc(r.encrypted_content.slice(0,400))}</div><div class="text-[10px] text-mut/70 mt-1">${esc(r.encrypted_aes_key.slice(0,120))}</div></div>`;
+ const p=plain[r.id];
+ return `<div class="glass p-4"><div class="flex justify-between text-xs text-mut mb-2"><span>${esc(r.content_type)} · #${r.id}</span><span>${esc(r.updated_at)}</span></div><div class="font-semibold">${esc(p.title)}</div><div class="text-sm text-mut whitespace-pre-wrap mt-1">${esc(p.content)}</div>
  <div class="mt-3 flex gap-3 text-xs"><button data-e="${r.id}" class="text-ele">Edit</button><button data-d="${r.id}" class="text-red-400">Hapus</button></div></div>`}).join('')||'<p class="text-mut text-sm">Belum ada data.</p>'}
 $('ls').onclick=async e=>{const d=e.target.dataset;if(d.d&&confirm('Hapus data ini?')){await svFetch('/api/contents/'+d.d+'/delete',{method:'POST'});load()}
  if(d.e){const p=plain[d.e];if(!p||p.err)return alert('Muat private key yang benar dulu.');$('eid').value=d.e;$('ti').value=p.title;$('co').value=p.content;$('ty').value=items.find(i=>i.id==d.e).content_type;$('cx').classList.remove('hidden');scrollTo(0,0)}};

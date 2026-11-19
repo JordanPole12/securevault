@@ -79,4 +79,61 @@ final class Session {
   }
 }
 
+/**
+ * Enkripsi kolom database (at-rest) dengan AES-256-GCM. Kunci diturunkan (HKDF) dari APP_KEY di .env.
+ * seal()/open() untuk nilai yang dibaca ulang; idx() = blind index HMAC-SHA256 agar kolom terenkripsi tetap bisa dicari/dihitung.
+ */
+final class Vault {
+  private static ?string $enc = null;
+  private static ?string $idx = null;
+  private static function keys(): void {
+    if (self::$enc !== null) return;
+    $raw = Env::get('APP_KEY');
+    if (str_starts_with($raw, 'base64:')) $raw = substr($raw, 7);
+    $k = base64_decode($raw, true);
+    if ($k === false || strlen($k) < 32) throw new \RuntimeException('APP_KEY tidak valid: butuh base64 minimal 32 byte.');
+    self::$enc = hash_hkdf('sha256', $k, 32, 'sv-field-enc');
+    self::$idx = hash_hkdf('sha256', $k, 32, 'sv-blind-idx');
+  }
+  public static function seal(?string $plain): ?string {
+    if ($plain === null) return null;
+    self::keys();
+    $iv = random_bytes(12); $tag = '';
+    $ct = openssl_encrypt($plain, 'aes-256-gcm', self::$enc, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+    if ($ct === false || strlen($tag) !== 16) throw new \RuntimeException('Enkripsi kolom gagal.');
+    return base64_encode($iv . $tag . $ct);
+  }
+  public static function open(?string $sealed): ?string {
+    if ($sealed === null) return null;
+    self::keys();
+    $raw = base64_decode($sealed, true);
+    if ($raw === false || strlen($raw) < 28) return null;
+    $p = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', self::$enc, OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
+    return $p === false ? null : $p;
+  }
+  public static function idx(string $v): string { self::keys(); return hash_hmac('sha256', $v, self::$idx); }
+}
+
+/** Seluruh log disimpan terenkripsi; kolom *_idx hanya berisi HMAC untuk penghitungan/pembatasan. */
+final class Log {
+  public static function auth(?string $fp, string $event, string $status): void {
+    $ip = Http::ip();
+    DB::run('INSERT INTO authentication_logs (fp_enc,event_enc,status_enc,status_idx,ip_enc,ip_idx) VALUES (?,?,?,?,?,?)',
+      [Vault::seal($fp), Vault::seal($event), Vault::seal($status), Vault::idx($status), Vault::seal($ip), Vault::idx($ip)]);
+  }
+  public static function sec(?int $uid, string $action, ?string $rtype, ?int $rid, string $status): void {
+    DB::run('INSERT INTO security_logs (user_id,action_enc,action_idx,resource_type_enc,resource_id,status_enc) VALUES (?,?,?,?,?,?)',
+      [$uid, Vault::seal($action), Vault::idx($action), Vault::seal($rtype), $rid, Vault::seal($status)]);
+  }
+  public static function decoy(?string $fp, string $event, string $status): void {
+    DB::run('INSERT INTO decoy_logs (fp_enc,event_enc,status_enc) VALUES (?,?,?)', [Vault::seal($fp), Vault::seal($event), Vault::seal($status)]);
+  }
+}
+
 function h(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+
+/** Teks acak sepanjang $s: dipakai agar sesi decoy tidak menampilkan satu kata pun yang bisa dibaca. */
+function x(string $s): string {
+  $n = max(1, mb_strlen($s));
+  return substr(str_replace('=', '', base64_encode(random_bytes($n))), 0, $n);
+}

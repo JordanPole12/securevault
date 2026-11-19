@@ -2,7 +2,7 @@
 declare(strict_types=1);
 namespace App\Controllers;
 
-use App\{DB, Http, Session};
+use App\{DB, Http, Log, Session, Vault};
 use App\Services\{KeyManagementService, SignatureService};
 
 final class AuthController
@@ -12,8 +12,8 @@ final class AuthController
     private static function tooManyFailures(): bool
     {
         $c = self::cfg();
-        $n = (int)(DB::one("SELECT COUNT(*) c FROM authentication_logs WHERE ip_address=? AND status='failure' AND created_at > (NOW() - INTERVAL ? SECOND)",
-            [Http::ip(), $c['fail_window']])['c'] ?? 0);
+        $n = (int)(DB::one("SELECT COUNT(*) c FROM authentication_logs WHERE ip_idx=? AND status_idx=? AND created_at > (NOW() - INTERVAL ? SECOND)",
+            [Vault::idx(Http::ip()), Vault::idx('failure'), $c['fail_window']])['c'] ?? 0);
         return $n >= $c['max_failures'];
     }
 
@@ -47,12 +47,12 @@ final class AuthController
 
         if ($ok) {
             Session::reset(['mode' => 'real', 'user_id' => (int)$key['user_id'], 'key_id' => (int)$key['id']]);
-            DB::run("INSERT INTO authentication_logs (key_fingerprint,event_type,status,ip_address) VALUES (?, 'login','success',?)", [$fp, Http::ip()]);
-            DB::run("INSERT INTO security_logs (user_id,action,status) VALUES (?, 'login','success')", [$key['user_id']]);
+            Log::auth($fp, 'login', 'success');
+            Log::sec((int)$key['user_id'], 'login', null, null, 'success');
         } else {
             Session::reset(['mode' => 'decoy']);             // sesi terpisah, tanpa user_id
-            DB::run("INSERT INTO authentication_logs (key_fingerprint,event_type,status,ip_address) VALUES (?, 'login','failure',?)", [$fp, Http::ip()]);
-            DB::run("INSERT INTO decoy_logs (attempted_key_fingerprint,event_type,status) VALUES (?, 'decoy_session','issued')", [$fp]);
+            Log::auth($fp, 'login', 'failure');
+            Log::decoy($fp, 'decoy_session', 'issued');
         }
         // Respons identik untuk kedua kasus: klien tidak diberi tahu mana yang berhasil.
         Http::json(['redirect' => '/dashboard']);
